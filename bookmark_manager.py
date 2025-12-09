@@ -30,7 +30,7 @@ class BookmarkManager:
             print(f"[{file_path}] 未找到根 DL 标签。")
             return []
 
-        print(f"[{file_path}] HTML 解析成功。找到根 DL 标签。")
+        # print(f"[{file_path}] HTML 解析成功。找到根 DL 标签。")
         self._traverse(root_dl, [], bookmarks)
         return bookmarks
 
@@ -57,25 +57,41 @@ class BookmarkManager:
 
             if node.name == 'dt':
                 # 检查是否为文件夹 (包含 H3)
-                h3 = node.find('h3')
+                # 使用 recursive=False 防止找到嵌套 DT 中的 H3
+                h3 = node.find('h3', recursive=False)
                 if h3:
                     folder_name = h3.get_text(strip=True)
                     new_path = current_path + [folder_name]
-                    print(f"Found Folder: {folder_name}")
+                    # print(f"Found Folder: {folder_name}")
                     
                     # 查找文件夹内容的 DL 标签
-                    # 它可能是当前 DT 的子节点，或者兄弟节点
-                    next_dl = node.find('dl')
+                    # 1. 尝试直接子节点
+                    next_dl = node.find('dl', recursive=False)
+                    # 2. 尝试兄弟节点
                     if not next_dl:
                         next_dl = node.find_next_sibling('dl')
                     
+                    # 3. 处理嵌套 DT 情况 (例如 OuterDT -> A -> InnerDT -> H3)
+                    # 这种情况下，DL 往往是 OuterDT 的兄弟节点，而不是 InnerDT 的兄弟。
+                    if not next_dl:
+                        parent = node.parent
+                        while parent and parent.name == 'dt':
+                            # 检查父级 DT 的兄弟 DL
+                            sibling_dl = parent.find_next_sibling('dl')
+                            if sibling_dl:
+                                next_dl = sibling_dl
+                                break
+                            parent = parent.parent
+
                     if next_dl:
                         self._traverse(next_dl, new_path, bookmarks)
-                    else:
-                        print(f"Warning: 文件夹 {folder_name} 没有内容 DL 标签。")
+                    # else:
+                    #     # Empty folder, no DL tag found. This is common for empty folders.
+                    #     pass
                 else:
                     # 检查是否为书签链接 (包含 A 标签)
-                    a = node.find('a')
+                    # 使用 recursive=False 避免找到后续嵌套结构中的 A 标签 (尽管 parse 逻辑应该处理了)
+                    a = node.find('a', recursive=False)
                     if a:
                         url = a.get('href')
                         title = a.get_text(strip=True)

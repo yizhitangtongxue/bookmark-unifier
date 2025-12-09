@@ -113,6 +113,7 @@ class Processor:
         for fp in file_paths:
             print(f"正在处理 {fp}...")
             bookmarks = manager.parse_file(fp)
+            print(f"  -> 包含 {len(bookmarks)} 个书签")
             all_bookmarks.extend(bookmarks)
             
         return all_bookmarks
