@@ -45,11 +45,39 @@ def main():
     # 4. 验证 (可选，但在本项目中作为核心步骤)
     # 这一步会去除无法访问的书签
     print("正在验证链接 (这可能需要一些时间)...")
-    validated_bookmarks = processor.validate_links(unique_bookmarks)
+    valid_bookmarks, broken_bookmarks = processor.validate_links(unique_bookmarks)
+ 
+    # 5. AI 分类 (可选)
+    # 检查是否有 API Key
+    from ai_categorizer import AICategorizer
+    categorizer = AICategorizer()
+    
+    if categorizer.llm:
+        print("\n检测到 AI 配置，是否进行 AI 智能分类重组？(y/n)")
+        choice = input().strip().lower()
+        if choice == 'y':
+            print("正在进行 AI 分类 (这可能需要较长时间)...")
+            from tqdm import tqdm
+            
+            # 使用列表副本进行迭代
+            ai_processed_bookmarks = []
+            for bookmark in tqdm(valid_bookmarks, unit="bookmark"):
+                try:
+                    new_path = categorizer.categorize(bookmark)
+                    bookmark['path'] = new_path
+                except Exception as e:
+                    print(f"Error classifying {bookmark['url']}: {e}")
+                ai_processed_bookmarks.append(bookmark)
+            valid_bookmarks = ai_processed_bookmarks
 
-    # 5. 写入输出
+    # 6. 写入输出
     print(f"正在写入结果到 {output_file}...")
-    manager.write_file(validated_bookmarks, output_file)
+    manager.write_file(valid_bookmarks, output_file)
+
+    if broken_bookmarks:
+        broken_file = os.path.join(output_dir, 'broken.html')
+        print(f"写入 {len(broken_bookmarks)} 个失效链接到 {broken_file}...")
+        manager.write_file(broken_bookmarks, broken_file)
     print("完成!")
 
 if __name__ == "__main__":

@@ -3,6 +3,13 @@ import requests
 from bookmark_manager import BookmarkManager
 
 from tqdm import tqdm
+import socket
+import geoip2.database
+import os
+
+# 配置
+GEOIP_DB_PATH = 'GeoLite2-Country.mmdb'
+PROXY_URL = os.getenv('HTTP_PROXY') or "http://127.0.0.1:7890" # 默认代理地址，可修改
 
 class Processor:
     """
@@ -10,6 +17,15 @@ class Processor:
     负责书签的去重、链接有效性验证和合并。
     """
     def __init__(self):
+        self.geoip_reader = None
+        if os.path.exists(GEOIP_DB_PATH):
+            try:
+                self.geoip_reader = geoip2.database.Reader(GEOIP_DB_PATH)
+                print(f"已加载 GeoIP 数据库: {GEOIP_DB_PATH}")
+            except Exception as e:
+                print(f"加载 GeoIP 数据库失败: {e}")
+        else:
+            print(f"未找到 GeoIP 数据库 ({GEOIP_DB_PATH})，将无法区分国内外流量 (默认直连/失败重试)。")
         self.seen_urls = set()
 
     def deduplicate(self, bookmarks):
@@ -72,36 +88,81 @@ class Processor:
 
         print(f"\n验证完成。发现 {len(broken_urls)} 个失效链接。")
 
-        # 更新书签
-        processed_bookmarks = []
+        # 分离有效和无效书签
+        valid_bookmarks = [b for b in bookmarks if b['url'] in valid_urls]
+        broken_bookmarks = []
         for b in bookmarks:
             if b['url'] in broken_urls:
                 # 移动到 'Broken Bookmarks' 文件夹
                 # 我们将其作为顶级文件夹 'Broken Bookmarks' 添加到路径前缀，
                 # 或者保留原有层级结构
                 b['path'] = ['Broken Bookmarks'] + b['path']
-            processed_bookmarks.append(b)
+                broken_bookmarks.append(b)
             
-        return processed_bookmarks
+        return valid_bookmarks, broken_bookmarks
 
     def _check_url(self, url):
         """
         检查单个 URL 的连通性。
-        先尝试 HEAD 请求，如果失败则尝试 GET 请求。
+        策略:
+        1. 尝试解析域名 IP
+        2. 若有 GeoIP DB:
+           - IP 为 CN -> 直连
+           - IP 非 CN -> 走代理
+        3. 若无 GeoIP DB 或 解析失败:
+           - 先尝试直连
+           - 失败则尝试走代理
         """
+        proxies = {
+            'http': PROXY_URL,
+            'https': PROXY_URL
+        }
+        
+        use_proxy = False
+        
+        # 1. GeoIP 判定
+        if self.geoip_reader:
+            try:
+                hostname = url.split('/')[2]
+                if ':' in hostname: # remove port
+                    hostname = hostname.split(':')[0]
+                
+                ip = socket.gethostbyname(hostname)
+                response = self.geoip_reader.country(ip)
+                iso_code = response.country.iso_code
+                
+                if iso_code != 'CN':
+                    use_proxy = True
+                    # print(f"Foreign IP ({iso_code}): {url} -> Use Proxy")
+            except Exception:
+                # 解析失败，可能被墙，尝试走代理
+                use_proxy = True
+        
+        # 2. 发起请求
         try:
-            # 先尝试 HEAD 请求 (更轻量)
-            response = requests.head(url, timeout=5, allow_redirects=True)
-            if response.status_code < 400:
+            # 首次尝试
+            req_proxies = proxies if use_proxy else None
+            timeout = 10 if use_proxy else 5
+            
+            requests.head(url, timeout=timeout, proxies=req_proxies)
+            return True
+        except requests.RequestException:
+            # 失败重试逻辑
+            if not use_proxy:
+                # 如果刚才没用代理失败了，尝试用代理再试一次 (兜底)
+                try:
+                    requests.head(url, timeout=10, proxies=proxies)
+                    return True
+                except requests.RequestException:
+                    pass
+            
+            # 尝试 GET 方法兜底
+            try:
+                # 简单点：如果上面 HEAD 失败了，我们统一再试一次 GET (带代理，最大成功率)
+                requests.get(url, timeout=10, stream=True, proxies=proxies)
                 return True
-            # 有些服务器认为 HEAD 请求是恶意的或不支持，尝试 GET 请求
-            response = requests.get(url, timeout=5, stream=True)
-            if response.status_code < 400:
-                response.close() # 只需要状态码，不需要内容，立即关闭
-                return True
-            return False
-        except:
-            return False
+            except requests.RequestException:
+                return False
 
     def merge_bookmarks(self, file_paths):
         """
