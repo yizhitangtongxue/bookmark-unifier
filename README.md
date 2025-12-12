@@ -1,63 +1,84 @@
 # 书签合并优化工具 (Bookmark Unifier)
-这是一个用于整理和优化浏览器书签的 Python 工具。
+
+这是一个功能强大的浏览器书签整理工具，支持去重、死链检测、智能代理访问以及 **AI 自动分类**。
 
 ## 主要功能
-该工具处理从浏览器导出的书签（HTML格式），并执行以下操作：
-1. **自动合并**：将 `input` 文件夹下的所有 HTML 书签文件合并为一个。
-2. **智能去重**：自动检测并删除重复的网址（保留第一次出现的）。
-3. **死链检测**：自动验证每个书签的连通性。无法访问的书签会被移动到 **"Broken Bookmarks"** 文件夹中，而不是直接强制删除，防止误删。
-4. **空文件夹清理**：优化输出结构，去除无用的空文件夹。
+
+1.  **自动合并**：将 `input` 文件夹下的所有 HTML 书签文件合并为一个。
+2.  **智能去重**：自动检测并删除重复的网址。
+3.  **死链分离**：
+    *   **result.html**: 包含所有有效书签。
+    *   **broken.html**: 包含所有访问失败的书签，方便后续人工排查。
+4.  **智能网络访问**：
+    *   **GeoIP 识别**: 自动识别 IP 归属地。
+    *   **智能代理**: 国内网站直连，国外/被墙网站自动走代理，大幅提高验证成功率。
+5.  **AI 智能分类** (New!): 集成 LangGraph + OpenAI，分析网页内容并将书签自动归类到最合适的文件夹。
 
 ## 目录结构
 ```
 bookmark-unifier/
 ├── input/       # [输入] 放置导出的书签文件 (.html)
-├── out/         # [输出] 生成和清理后的书签文件
-├── main.py      # 主程序入口
-├── bookmark_manager.py  # 书签解析与写入模块
-├── processor.py         # 核心处理逻辑 (去重、验证)
-└── README.md    # 说明文档
+├── out/         # [输出] result.html (有效) 和 broken.html (失效)
+├── .env         # [配置] API Key 和 代理配置
+├── GeoLite2-Country.mmdb # [数据] GeoIP 数据库 (需手动下载)
+├── main.py      # 主程序
+└── ...
 ```
 
-## 安装与使用
-本项目建议使用 `uv` 进行依赖管理，也可以使用 `pip`。
+## 安装与配置
 
 ### 1. 环境准备
-
-#### 使用 uv (推荐)
-```bash
-# 初始化项目 (如果尚未初始化)
-uv init
-
-# 添加依赖
-uv add beautifulsoup4 lxml requests tqdm
-```
-
-#### 使用 pip
-```bash
-pip install beautifulsoup4 lxml requests
-```
-
-### 2. 运行程序
-1. 将浏览器导出的书签文件 (例如 `bookmarks_10_9_23.html`) 放入 **`input`** 文件夹中。
-2. 运行主程序：
+推荐使用 `uv` 进行依赖管理。
 
 ```bash
-# 使用 uv 运行
-uv run main.py
-
-# 或者直接 python 运行
-python main.py
+# 初始化环境并安装依赖
+uv sync
 ```
 
-### 3. 查看结果
-程序运行完成后，清理后的书签将生成在 **`out/result.html`**。
-您可以直接将此文件导入回浏览器。
+### 2. 配置 GeoIP (必须)
+为了区分国内外流量，您需要下载 MaxMind 的 GeoIP 数据库。
 
-## 技术细节
-- **HTML 解析**: 使用 `BeautifulSoup` 和 `lxml` 引擎，健壮地处理 Netscape 书签格式的各种怪癖（如嵌套不规范、标签未闭合等）。
-- **并行验证**: 使用线程池 (`concurrent.futures`) 并发检测链接有效性，显著提高处理速度。
-- **安全策略**: 对于网络超时或暂时无法访问的链接，采取“隔离”而非“删除”策略，确保数据安全。
+1.  **下载地址**: [https://github.com/P3TERX/GeoLite.mmdb/releases](https://github.com/P3TERX/GeoLite.mmdb/releases)
+2.  **下载文件**: `GeoLite2-Country.mmdb`
+3.  **放置位置**: 将文件放入项目根目录下的 `data/` 文件夹中（如果没有请创建）。
+    > `data/GeoLite2-Country.mmdb`
 
-## 开源协议
-MIT License
+### 3. 配置 .env (AI 功能必须)
+复制配置文件模板并修改：
+
+```bash
+cp .env.example .env
+```
+
+在 `.env` 文件中填入您的配置：
+```ini
+# OpenAI 配置 (AI 分类功能需要)
+OPENAI_API_KEY=sk-xxxxxxxx
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL_NAME=gpt-4o
+
+# 代理配置 (可选，用于访问国外网站)
+HTTP_PROXY=http://127.0.0.1:7890
+HTTPS_PROXY=http://127.0.0.1:7890
+```
+
+## 运行程序
+
+1.  将浏览器导出的书签 (`.html`) 放入 `input/` 文件夹。
+2.  运行：
+    ```bash
+    uv run main.py
+    ```
+3.  程序将自动合并、去重并验证链接。
+4.  验证完成后，程序会询问是否进行 **AI 智能分类**，输入 `y` 确认即可。
+
+## 输出结果
+*   `out/result.html`: 最终的干净书签文件，可直接导入浏览器。
+*   `out/broken.html`: 失效链接列表。
+
+## 技术栈
+*   **Python 3.12+**
+*   **LangGraph**: AI 工作流编排
+*   **BeautifulSoup & lxml**: 高性能 HTML 解析
+*   **Requests & PySocks**: 网络请求与代理支持
+*   **GeoIP2**: IP 地理位置识别

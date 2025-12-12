@@ -4,6 +4,7 @@ from bookmark_manager import BookmarkManager
 
 from tqdm import tqdm
 import socket
+import ipaddress
 import geoip2.database
 import os
 
@@ -18,14 +19,31 @@ class Processor:
     """
     def __init__(self):
         self.geoip_reader = None
-        if os.path.exists(GEOIP_DB_PATH):
+        
+        # 尝试查找不同的数据库文件名
+        # 优先查找 data 目录
+        possible_paths = [
+            os.path.join('data', 'GeoLite2-Country.mmdb'),
+            os.path.join('data', 'Country.mmdb'),
+            os.path.join('data', 'country.mmdb'),
+            'GeoLite2-Country.mmdb', 
+            'Country.mmdb', 
+            'country.mmdb'
+        ]
+        db_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                db_path = path
+                break
+        
+        if db_path:
             try:
-                self.geoip_reader = geoip2.database.Reader(GEOIP_DB_PATH)
-                print(f"已加载 GeoIP 数据库: {GEOIP_DB_PATH}")
+                self.geoip_reader = geoip2.database.Reader(db_path)
+                print(f"已加载 GeoIP 数据库: {db_path}")
             except Exception as e:
                 print(f"加载 GeoIP 数据库失败: {e}")
         else:
-            print(f"未找到 GeoIP 数据库 ({GEOIP_DB_PATH})，将无法区分国内外流量 (默认直连/失败重试)。")
+            print(f"未找到 GeoIP 数据库 (尝试查找: {possible_db_names})，将无法区分国内外流量 (默认直连/失败重试)。")
         self.seen_urls = set()
 
     def deduplicate(self, bookmarks):
@@ -73,16 +91,24 @@ class Processor:
                     pbar.set_description(f"处理: {display_title}")
                     
                     try:
-                        is_valid = future.result()
+                        is_valid, status_code, used_proxy = future.result()
                     except Exception as e:
                         is_valid = False
+                        status_code = "ERR"
+                        used_proxy = False
                     
                     if is_valid:
                         valid_urls.add(url)
                     else:
                         broken_urls.add(url)
-                        # 这里可以使用 pbar.write 来输出，避免打乱进度条
-                        # pbar.write(f"失效链接: {title} ({url})")
+                    
+                    # Print status
+                    proxy_str = "PROXY" if used_proxy else "DIRECT"
+                    # status_code might be int or str ("ERR")
+                    status_str = str(status_code)
+                    
+                    # Log output as requested
+                    pbar.write(f"[{status_str:<3}] [{proxy_str:<6}] {display_title} -> {url}")
 
                     pbar.update(1)
 
@@ -104,14 +130,7 @@ class Processor:
     def _check_url(self, url):
         """
         检查单个 URL 的连通性。
-        策略:
-        1. 尝试解析域名 IP
-        2. 若有 GeoIP DB:
-           - IP 为 CN -> 直连
-           - IP 非 CN -> 走代理
-        3. 若无 GeoIP DB 或 解析失败:
-           - 先尝试直连
-           - 失败则尝试走代理
+        返回: (is_valid, status_code, used_proxy)
         """
         proxies = {
             'http': PROXY_URL,
@@ -120,23 +139,42 @@ class Processor:
         
         use_proxy = False
         
-        # 1. GeoIP 判定
-        if self.geoip_reader:
+        # 1. 解析 IP 并检查本地地址 / GeoIP
+        ip = None
+        hostname = None
+        try:
+            hostname = url.split('/')[2]
+            if ':' in hostname: # remove port
+                hostname = hostname.split(':')[0]
+            
+            # Resolve IP
+            ip = socket.gethostbyname(hostname)
+            
+            # Check for Private / Loopback IP
             try:
-                hostname = url.split('/')[2]
-                if ':' in hostname: # remove port
-                    hostname = hostname.split(':')[0]
+                ip_obj = ipaddress.ip_address(ip)
+                if ip_obj.is_private or ip_obj.is_loopback:
+                    # Skip local IPs, treat as valid to avoid timeout
+                    return True, "SKIP", False
+            except ValueError:
+                pass
                 
-                ip = socket.gethostbyname(hostname)
+        except Exception:
+            # DNS resolution failed
+            # verify later with requests (which might use proxy)
+            pass
+
+        if self.geoip_reader and ip:
+            try:
                 response = self.geoip_reader.country(ip)
                 iso_code = response.country.iso_code
-                
                 if iso_code != 'CN':
                     use_proxy = True
-                    # print(f"Foreign IP ({iso_code}): {url} -> Use Proxy")
+            except geoip2.errors.AddressNotFoundError:
+                 # Private IP or not found
+                 pass
             except Exception:
-                # 解析失败，可能被墙，尝试走代理
-                use_proxy = True
+                 use_proxy = True
         
         # 2. 发起请求
         try:
@@ -144,25 +182,27 @@ class Processor:
             req_proxies = proxies if use_proxy else None
             timeout = 10 if use_proxy else 5
             
-            requests.head(url, timeout=timeout, proxies=req_proxies)
-            return True
+            resp = requests.head(url, timeout=timeout, proxies=req_proxies)
+            return True, resp.status_code, use_proxy
         except requests.RequestException:
             # 失败重试逻辑
             if not use_proxy:
                 # 如果刚才没用代理失败了，尝试用代理再试一次 (兜底)
                 try:
-                    requests.head(url, timeout=10, proxies=proxies)
-                    return True
+                    resp = requests.head(url, timeout=10, proxies=proxies)
+                    return True, resp.status_code, True
                 except requests.RequestException:
                     pass
             
             # 尝试 GET 方法兜底
             try:
-                # 简单点：如果上面 HEAD 失败了，我们统一再试一次 GET (带代理，最大成功率)
-                requests.get(url, timeout=10, stream=True, proxies=proxies)
-                return True
-            except requests.RequestException:
-                return False
+                # 统一再试一次 GET (带代理，最大成功率)
+                resp = requests.get(url, timeout=10, stream=True, proxies=proxies)
+                resp.close()
+                return True, resp.status_code, True # If GET succeeds, it used proxy
+            except requests.RequestException as e:
+                # Get exception code if possible, or just 0
+                return False, 0, use_proxy
 
     def merge_bookmarks(self, file_paths):
         """
