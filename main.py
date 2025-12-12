@@ -11,10 +11,10 @@ def main():
     2. 读取并合并所有书签
     3. 去重
     4. 验证链接有效性 (耗时较长)
-    5. 输出结果到 out/result.html
+    5. 输出结果到 output/result.html
     """
     input_dir = 'input'
-    output_dir = 'out'
+    output_dir = 'output'
     output_file = os.path.join(output_dir, 'result.html')
 
     # 确保目录存在

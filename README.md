@@ -31,7 +31,7 @@
 ```
 bookmark-unifier/
 ├── input/       # [输入] 放置导出的书签文件 (.html)
-├── out/         # [输出] result.html (有效) 和 broken.html (失效)
+├── output/      # [输出] result.html (有效) 和 broken.html (失效)
 ├── .env         # [配置] API Key 和 代理配置
 ├── GeoLite2-Country.mmdb # [数据] GeoIP 数据库 (需手动下载)
 ├── main.py      # 主程序
@@ -75,6 +75,15 @@ HTTP_PROXY=http://127.0.0.1:7890
 HTTPS_PROXY=http://127.0.0.1:7890
 ```
 
+### 4. 注意事项 (重要)
+> [!IMPORTANT]
+> **本脚本不支持 FakeIP 或 Tun 模式**
+> 
+> *   **FakeIP**: 会导致域名解析为虚拟 IP (如 198.18.x.x)，使 **GeoIP 无法正确识别** 目标网站地理位置，导致代理策略失效。
+> *   **Tun 模式**: 可能导致 Python 网络请求库无法正确走代理或连接被重置。
+> 
+> 请务必使用 **系统代理 (System Proxy)** 模式，或直接在 `.env` 中配置 HTTP 端口代理。
+
 ## 运行程序
 
 1.  将浏览器导出的书签 (`.html`) 放入 `input/` 文件夹。
@@ -86,8 +95,8 @@ HTTPS_PROXY=http://127.0.0.1:7890
 4.  验证完成后，程序会询问是否进行 **AI 智能分类**，输入 `y` 确认即可。
 
 ## 输出结果
-*   `out/result.html`: 最终的干净书签文件，可直接导入浏览器。
-*   `out/broken.html`: 失效链接列表。
+*   `output/result.html`: 最终的干净书签文件，可直接导入浏览器。
+*   `output/broken.html`: 失效链接列表。
 
 ## 技术栈
 *   **Python 3.12+**
