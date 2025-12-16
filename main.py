@@ -61,12 +61,12 @@ def main():
             
             # 使用列表副本进行迭代
             ai_processed_bookmarks = []
-            for bookmark in tqdm(valid_bookmarks, unit="bookmark"):
+            for bookmark in tqdm(valid_bookmarks, unit="书签"):
                 try:
                     new_path = categorizer.categorize(bookmark)
                     bookmark['path'] = new_path
                 except Exception as e:
-                    print(f"Error classifying {bookmark['url']}: {e}")
+                    print(f"分类错误 {bookmark['url']}: {e}")
                 ai_processed_bookmarks.append(bookmark)
             valid_bookmarks = ai_processed_bookmarks
 

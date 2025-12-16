@@ -102,12 +102,12 @@ class Processor:
                     else:
                         broken_urls.add(url)
                     
-                    # Print status
-                    proxy_str = "PROXY" if used_proxy else "DIRECT"
-                    # status_code might be int or str ("ERR")
+                    # 打印状态
+                    proxy_str = "代理" if used_proxy else "直连"
+                    # status_code 可能是 int 或 str ("ERR")
                     status_str = str(status_code)
                     
-                    # Log output as requested
+                    # 按要求记录输出
                     pbar.write(f"[{status_str:<3}] [{proxy_str:<6}] {display_title} -> {url}")
 
                     pbar.update(1)
@@ -144,24 +144,24 @@ class Processor:
         hostname = None
         try:
             hostname = url.split('/')[2]
-            if ':' in hostname: # remove port
+            if ':' in hostname: # 移除端口
                 hostname = hostname.split(':')[0]
             
-            # Resolve IP
+            # 解析 IP
             ip = socket.gethostbyname(hostname)
             
-            # Check for Private / Loopback IP
+            # 检查私有 / 环回 IP
             try:
                 ip_obj = ipaddress.ip_address(ip)
                 if ip_obj.is_private or ip_obj.is_loopback:
-                    # Skip local IPs, treat as valid to avoid timeout
-                    return True, "SKIP", False
+                    # 跳过本地 IP，视为有效以避免超时
+                    return True, "跳过", False
             except ValueError:
                 pass
                 
         except Exception:
-            # DNS resolution failed
-            # verify later with requests (which might use proxy)
+            # DNS 解析失败
+            # 稍后使用 requests 验证 (可能会使用代理)
             pass
 
         if self.geoip_reader and ip:
@@ -171,7 +171,7 @@ class Processor:
                 if iso_code != 'CN':
                     use_proxy = True
             except geoip2.errors.AddressNotFoundError:
-                 # Private IP or not found
+                 # 私有 IP 或未找到
                  pass
             except Exception:
                  use_proxy = True
@@ -201,7 +201,7 @@ class Processor:
                 resp.close()
                 return True, resp.status_code, True # If GET succeeds, it used proxy
             except requests.RequestException as e:
-                # Get exception code if possible, or just 0
+                # 尽可能获取异常代码，或者仅返回 0
                 return False, 0, use_proxy
 
     def merge_bookmarks(self, file_paths):
