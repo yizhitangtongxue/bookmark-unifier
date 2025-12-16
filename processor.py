@@ -108,7 +108,7 @@ class Processor:
                     status_str = str(status_code)
                     
                     # 按要求记录输出
-                    pbar.write(f"[{status_str:<3}] [{proxy_str:<6}] {display_title} -> {url}")
+                    pbar.write(f"[{status_str:<3}] [{proxy_str:<2}] {display_title} -> {url}")
 
                     pbar.update(1)
 
