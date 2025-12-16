@@ -43,7 +43,7 @@ class AICategorizer:
             with open(os.path.join("prompt", "categorize.txt"), "r", encoding="utf-8") as f:
                 self.prompt_template = f.read()
         except Exception as e:
-            print(f"Error loading prompt template: {e}")
+            print(f"加载Prompt模板失败: {e}")
             self.prompt_template = ""
         
     def _fetch_content(self, state: BookmarkState) -> BookmarkState:
