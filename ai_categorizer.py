@@ -89,6 +89,7 @@ class AICategorizer:
             url=state['url'],
             content=state['content']
         )
+
         try:
             response = self.llm.invoke([HumanMessage(content=prompt)])
             result = response.content.strip()
